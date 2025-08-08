@@ -1,134 +1,126 @@
 # André 1.0 - Tutor de Francés con IA
 
-André 1.0 es una aplicación de tutoría de francés impulsada por IA que se adapta a la edad del estudiante (5-40 años) para proporcionar una experiencia de aprendizaje personalizada.
+André 1.0 es una aplicación de tutoría de francés impulsada por inteligencia artificial, diseñada específicamente para hispanohablantes que desean aprender francés de manera interactiva y personalizada.
 
-## 🌟 Características
+## 🎯 Características
 
-- **Conversación en Tiempo Real**: Utiliza la API Realtime de OpenAI para conversaciones de voz naturales
-- **Adaptación por Edad**: Contenido y metodología personalizada según la edad del estudiante
-- **Correcciones Inteligentes**: Retroalimentación instantánea sobre pronunciación y gramática
-- **Ejercicios Dinámicos**: Actividades adaptadas al nivel y edad del estudiante
-- **Interfaz Intuitiva**: Diseño moderno y fácil de usar con React y Tailwind CSS
+- **Reconocimiento de voz** con tecnología Whisper de OpenAI
+- **Conversación en tiempo real** mediante WebSockets
+- **Corrección de pronunciación** específica para hispanohablantes
+- **Adaptación por edad** (5-40 años) con contenido apropiado
+- **Síntesis de voz natural** para respuestas en francés
+- **Interfaz intuitiva y atractiva** con React y Tailwind CSS
 
-## 🚀 Instalación Rápida
+## 🚀 Instalación
 
-### Requisitos Previos
+### Prerrequisitos
 
-- Node.js 20+
+- Node.js (v16 o superior)
 - NPM o Yarn
 - Clave API de OpenAI
 
-### Configuración Local
+### Configuración
 
-1. **Clonar el repositorio**
-```bash
-cd /Users/miguelgabayetbodington/LOC_PROGRAM/ANDRE_1.0
-```
+1. Clona el repositorio:
+\`\`\`bash
+git clone https://github.com/tu-usuario/andre-french-tutor.git
+cd andre-french-tutor
+\`\`\`
 
-2. **Configurar variables de entorno**
-```bash
-cp backend/.env.example backend/.env
-# Editar backend/.env y agregar tu OPENAI_API_KEY
-```
+2. Instala las dependencias del backend:
+\`\`\`bash
+cd backend
+npm install
+\`\`\`
 
-3. **Instalar dependencias**
-```bash
-npm run install:all
-```
+3. Configura las variables de entorno:
+\`\`\`bash
+cp .env.example .env
+# Edita .env y agrega tu clave API de OpenAI
+\`\`\`
 
-4. **Iniciar la aplicación**
-```bash
+4. Instala las dependencias del frontend:
+\`\`\`bash
+cd ../frontend
+npm install
+\`\`\`
+
+## 🎮 Uso
+
+1. Inicia el servidor backend:
+\`\`\`bash
+cd backend
+npm start
+\`\`\`
+
+2. En otra terminal, inicia el frontend:
+\`\`\`bash
+cd frontend
 npm run dev
-```
+\`\`\`
 
-La aplicación estará disponible en:
-- Frontend: http://localhost:5000
-- Backend: http://localhost:5001
+3. Abre tu navegador en http://localhost:5000
 
-## 🐳 Despliegue con Docker
+## 🏗️ Arquitectura
 
-### Construcción y ejecución
+- **Frontend**: React + Vite + Tailwind CSS
+- **Backend**: Node.js + Express + WebSockets
+- **IA**: OpenAI GPT-3.5-turbo + Whisper + TTS
+- **Persistencia**: Sesiones en memoria con limpieza automática
 
-```bash
-# Construir y ejecutar con Docker Compose
-docker-compose up --build
+## 📱 Funcionalidades
 
-# O ejecutar en segundo plano
-docker-compose up -d
-```
+### Para Niños (5-10 años)
+- Vocabulario básico con animales y colores
+- Juegos y canciones interactivas
+- Retroalimentación positiva constante
 
-La aplicación estará disponible en http://localhost:8080
+### Para Adolescentes (11-17 años)
+- Conversaciones sobre hobbies y vida escolar
+- Referencias a cultura popular
+- Ejercicios dinámicos
 
-### Detener la aplicación
+### Para Jóvenes Adultos (18-25 años)
+- Situaciones prácticas (viajes, universidad)
+- Preparación para entrevistas
+- Conversaciones sociales
 
-```bash
-docker-compose down
-```
+### Para Adultos (26-40 años)
+- Francés de negocios
+- Debates sobre temas actuales
+- Presentaciones profesionales
 
-## 📁 Estructura del Proyecto
+## 🐳 Docker
 
-```
-ANDRE_1.0/
-├── backend/                 # Servidor Express.js
-│   ├── routes/              # Rutas API
-│   ├── services/            # Lógica de negocio
-│   └── server.js            # Punto de entrada del servidor
-├── frontend/                # Aplicación React
-│   ├── src/
-│   │   ├── components/      # Componentes reutilizables
-│   │   ├── pages/           # Páginas de la aplicación
-│   │   └── App.jsx          # Componente principal
-│   └── package.json
-├── docker-compose.yml       # Configuración Docker
-└── README.md
-```
+También puedes ejecutar la aplicación con Docker:
 
-## 🎯 Uso de la Aplicación
-
-1. **Crear Perfil**: Ingresa tu nombre y edad (5-40 años)
-2. **Iniciar Sesión**: Comienza una sesión de tutoría con André
-3. **Conversar**: Habla en francés y recibe correcciones en tiempo real
-4. **Ejercicios**: Accede a ejercicios adaptados a tu edad y nivel
-5. **Practicar**: Mejora tu pronunciación y gramática con feedback instantáneo
-
-## 🔧 Configuración Avanzada
-
-### Variables de Entorno
-
-- `OPENAI_API_KEY`: Tu clave API de OpenAI (requerida)
-- `PORT`: Puerto del servidor backend (default: 5001)
-- `NODE_ENV`: Entorno de ejecución (development/production)
-
-### Personalización
-
-Puedes personalizar los ejercicios y prompts en:
-- `backend/routes/exercises.js`: Ejercicios por grupo de edad
-- `backend/services/realtimeService.js`: Prompts del sistema y personalidad de André
-
-## 📝 Notas Importantes
-
-- **API de OpenAI**: Requiere acceso a la API Realtime de OpenAI (gpt-4o-realtime-preview)
-- **Micrófono**: La aplicación requiere acceso al micrófono para la funcionalidad de voz
-- **Navegador**: Funciona mejor en Chrome, Firefox o Edge modernos
-- **Conexión**: Requiere conexión a internet estable para las conversaciones en tiempo real
+\`\`\`bash
+docker-compose up
+\`\`\`
 
 ## 🤝 Contribuciones
 
 Las contribuciones son bienvenidas. Por favor:
+
 1. Fork el proyecto
-2. Crea una rama para tu feature
-3. Commit tus cambios
-4. Push a la rama
+2. Crea tu feature branch (\`git checkout -b feature/AmazingFeature\`)
+3. Commit tus cambios (\`git commit -m 'Add some AmazingFeature'\`)
+4. Push a la branch (\`git push origin feature/AmazingFeature\`)
 5. Abre un Pull Request
 
 ## 📄 Licencia
 
-Este proyecto es de código abierto y está disponible bajo la licencia MIT.
+Este proyecto está bajo la Licencia MIT - ver el archivo LICENSE para más detalles.
 
-## 🆘 Soporte
+## 🙏 Agradecimientos
 
-Si encuentras algún problema o tienes preguntas, por favor abre un issue en el repositorio.
+- OpenAI por su increíble API
+- La comunidad de React y Node.js
+- Todos los colaboradores del proyecto
 
 ---
 
-Desarrollado con ❤️ para ayudar a hispanohablantes a aprender francés de manera efectiva y divertida.
+🤖 Generado con [Claude Code](https://claude.ai/code)
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+EOF < /dev/null
