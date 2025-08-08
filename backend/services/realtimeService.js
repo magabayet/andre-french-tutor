@@ -195,7 +195,7 @@ export class RealtimeService extends EventEmitter {
 
       const speech = await this.openai.audio.speech.create({
         model: 'tts-1',
-        voice: 'nova',
+        voice: 'ash',
         input: responseText,
         speed: 0.9
       });

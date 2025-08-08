@@ -86,7 +86,7 @@ wss.on('connection', (ws) => {
           try {
             const speech = await openai.audio.speech.create({
               model: 'tts-1',
-              voice: 'nova',
+              voice: 'ash',
               input: data.text,
               speed: 0.9
             });
