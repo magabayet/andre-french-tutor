@@ -36,6 +36,13 @@ function TutorSession() {
     }
 
     return () => {
+      // Limpiar timeouts al desmontar
+      if (autoRecordTimeoutRef.current) {
+        clearTimeout(autoRecordTimeoutRef.current);
+      }
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+      }
       if (ws.current && ws.current.readyState === WebSocket.OPEN) {
         ws.current.close();
         ws.current = null;
@@ -158,11 +165,17 @@ function TutorSession() {
       
       // Iniciar grabación automática después de que termine el audio
       if (autoRecord && audioRecorderRef.current && !isRecording) {
+        // Limpiar cualquier timeout anterior
+        if (autoRecordTimeoutRef.current) {
+          clearTimeout(autoRecordTimeoutRef.current);
+        }
+        
         autoRecordTimeoutRef.current = setTimeout(() => {
-          console.log('Iniciando grabación automática...');
-          setIsRecording(true);
-          audioRecorderRef.current.startRecording();
-        }, 500); // Esperar 500ms antes de empezar a grabar
+          if (!isRecording && !isPlayingAudio) {
+            console.log('Iniciando grabación automática...');
+            audioRecorderRef.current.startRecording();
+          }
+        }, 800); // Esperar 800ms antes de empezar a grabar
       }
     });
     
@@ -266,19 +279,20 @@ function TutorSession() {
                 autoStop={true} // Activar parada automática por silencio
                 silenceDelay={2000} // Parar después de 2 segundos de silencio
                 onStart={() => {
-                  if (!isPlayingAudio) {
-                    setIsRecording(true);
-                    // Limpiar timeouts anteriores
-                    if (autoRecordTimeoutRef.current) {
-                      clearTimeout(autoRecordTimeoutRef.current);
-                    }
-                  } else {
-                    toast.error('Espera a que André termine de hablar');
+                  console.log('Grabación iniciada');
+                  setIsRecording(true);
+                  // Limpiar timeouts anteriores
+                  if (autoRecordTimeoutRef.current) {
+                    clearTimeout(autoRecordTimeoutRef.current);
+                    autoRecordTimeoutRef.current = null;
                   }
                 }}
                 onStop={(blob) => {
+                  console.log('Grabación detenida, procesando blob de', blob.size, 'bytes');
                   setIsRecording(false);
-                  handleAudioData(blob);
+                  if (blob && blob.size > 1000) {
+                    handleAudioData(blob);
+                  }
                 }}
               />
               {isPlayingAudio && (
