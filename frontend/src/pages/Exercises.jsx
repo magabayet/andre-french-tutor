@@ -214,7 +214,12 @@ function Exercises() {
                 <p className="text-gray-600">{exercise.description}</p>
                 <div className="mt-4">
                   <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm">
-                    {exercise.type}
+                    {exercise.type === 'vocabulary' ? 'vocabulario' :
+                     exercise.type === 'conversation' ? 'conversación' :
+                     exercise.type === 'roleplay' ? 'juego de rol' :
+                     exercise.type === 'professional' ? 'profesional' :
+                     exercise.type === 'practical' ? 'práctico' :
+                     exercise.type}
                   </span>
                 </div>
               </motion.div>
