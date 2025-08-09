@@ -64,26 +64,25 @@ const AudioRecorder = forwardRef(({
       }
       
       // Marcar que el usuario ha hablado si el nivel es significativo
-      if (normalizedLevel > 15 && !hasSpoken) {
+      if (normalizedLevel > 10 && !hasSpoken) {
         console.log('Usuario ha comenzado a hablar');
         setHasSpoken(true);
       }
       
       // Detección de silencio para auto-stop
-      if (autoStop && hasSpoken) { // Solo detectar silencio si el usuario ha hablado
-        if (normalizedLevel < 5) { // Umbral de silencio aumentado
-          if (!silenceTimerRef.current) {
+      if (autoStop) {
+        if (normalizedLevel < 4) { // Umbral de silencio
+          if (!silenceTimerRef.current && hasSpoken) {
             console.log(`Silencio detectado (nivel: ${normalizedLevel.toFixed(2)}), max nivel: ${maxAudioLevel.toFixed(2)}`);
             setIsListening(false);
             silenceTimerRef.current = setTimeout(() => {
-              // Solo detener si el usuario realmente habló (nivel máximo significativo)
-              if (maxAudioLevel > 20) {
+              // Solo detener si el usuario habló algo
+              if (hasSpoken && maxAudioLevel > 12) {
                 console.log('Auto-deteniendo por silencio prolongado');
                 handleStopRecording();
               } else {
-                console.log('No se detectó habla real, continuando grabación');
+                console.log('Esperando a que el usuario hable...');
                 silenceTimerRef.current = null;
-                setIsListening(true);
               }
             }, silenceDelay);
           }
@@ -94,7 +93,7 @@ const AudioRecorder = forwardRef(({
             clearTimeout(silenceTimerRef.current);
             silenceTimerRef.current = null;
             setIsListening(true);
-          } else if (!isListening && normalizedLevel > 8) {
+          } else if (!isListening && normalizedLevel > 6) {
             setIsListening(true);
           }
         }
@@ -405,7 +404,7 @@ const AudioRecorder = forwardRef(({
             exit={{ opacity: 0 }}
             className="absolute -bottom-20 left-1/2 transform -translate-x-1/2 text-xs text-orange-600 font-medium"
           >
-            Detectando silencio... (2.2s)
+            Detectando silencio... (1.8s)
           </motion.div>
         )}
       </AnimatePresence>

@@ -179,7 +179,7 @@ function TutorSession() {
             console.log('Iniciando grabación automática...');
             audioRecorderRef.current.startRecording();
           }
-        }, 800); // Esperar 800ms antes de empezar a grabar
+        }, 400); // Esperar solo 400ms antes de empezar a grabar
       }
     });
     
@@ -317,7 +317,7 @@ function TutorSession() {
                 isRecording={isRecording}
                 disabled={isPlayingAudio}
                 autoStop={true} // Activar parada automática por silencio
-                silenceDelay={2200} // Parar después de 2.2 segundos de silencio
+                silenceDelay={1800} // Parar después de 1.8 segundos de silencio
                 onStart={() => {
                   console.log('Grabación iniciada');
                   setIsRecording(true);

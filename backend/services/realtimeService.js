@@ -150,11 +150,12 @@ export class RealtimeService extends EventEmitter {
       const tempFilePath = path.join(tempDir, `audio_${Date.now()}.webm`);
       fs.writeFileSync(tempFilePath, audioBuffer);
 
+      // No forzar idioma para detectar español
       const transcription = await this.openai.audio.transcriptions.create({
         file: fs.createReadStream(tempFilePath),
         model: 'whisper-1',
-        language: 'fr',
-        prompt: 'Conversation en français' // Ayuda a Whisper a entender el contexto
+        // Sin especificar language para detectar automáticamente
+        prompt: 'Estudiante aprendiendo francés' // Contexto pedagógico
       });
       
       // Limpiar archivo temporal
@@ -206,12 +207,20 @@ export class RealtimeService extends EventEmitter {
 
       // Enfocar en conversación natural sin analizar pronunciación
 
+      // Detectar si el usuario habló en español
+      const isSpanish = this.detectSpanish(transcription.text);
+      
+      let systemPromptAdjustment = '';
+      if (isSpanish) {
+        systemPromptAdjustment = `\n\nIMPORTANTE: El estudiante acaba de hablar en ESPAÑOL. NO traduzcas lo que dijo. En lugar de eso, ayúdalo diciendo algo como: "En français, s'il vous plaît! Comment dit-on '${transcription.text.split(' ').slice(0, 3).join(' ')}...' en français?" y luego guíalo.`;
+      }
+      
       const completion = await this.openai.chat.completions.create({
         model: 'gpt-4o-mini',
         messages: [
           { 
             role: 'system', 
-            content: session.systemPrompt
+            content: session.systemPrompt + systemPromptAdjustment
           },
           ...session.conversation.slice(-10), // Mantener más contexto
           { role: 'user', content: transcription.text }
@@ -288,6 +297,19 @@ export class RealtimeService extends EventEmitter {
     }
   }
 
+  detectSpanish(text) {
+    // Palabras comunes en español que no existen en francés
+    const spanishWords = [
+      'hola', 'cómo', 'estás', 'qué', 'bien', 'gracias', 'por favor',
+      'perdón', 'disculpa', 'cuánto', 'dónde', 'cuándo', 'quién',
+      'tengo', 'quiero', 'puedo', 'necesito', 'entiendo', 'hablar',
+      'español', 'ayuda', 'significa', 'decir', 'no sé', 'años'
+    ];
+    
+    const lowerText = text.toLowerCase();
+    return spanishWords.some(word => lowerText.includes(word));
+  }
+  
   generateSessionId() {
     return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
