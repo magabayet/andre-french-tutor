@@ -10,9 +10,9 @@ const AudioRecorder = forwardRef(({
   autoStop = false,
   silenceDelay = 2000
 }, ref) => {
-  const [localIsRecording, setLocalIsRecording] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState(null);
   const [audioLevel, setAudioLevel] = useState(0);
+  const [isDetectingSilence, setIsDetectingSilence] = useState(false);
   const chunksRef = useRef([]);
   const silenceTimerRef = useRef(null);
   const analyserRef = useRef(null);
@@ -29,17 +29,20 @@ const AudioRecorder = forwardRef(({
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     
     const checkAudioLevel = () => {
-      if (!localIsRecording || !analyserRef.current) return;
+      if (!analyserRef.current) {
+        return;
+      }
       
       analyser.getByteFrequencyData(dataArray);
       const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
       setAudioLevel(average);
       
       // Si autoStop está activado, detectar silencio
-      if (autoStop) {
-        if (average < 5) { // Umbral de silencio más sensible
+      if (autoStop && mediaRecorder && mediaRecorder.state === 'recording') {
+        if (average < 3) { // Umbral de silencio muy sensible
           if (!silenceTimerRef.current) {
             console.log('Detectando silencio, iniciando timer...');
+            setIsDetectingSilence(true);
             silenceTimerRef.current = setTimeout(() => {
               console.log('Silencio detectado por 2 segundos, deteniendo grabación...');
               stopRecording();
@@ -51,23 +54,32 @@ const AudioRecorder = forwardRef(({
             console.log('Sonido detectado, cancelando timer de silencio');
             clearTimeout(silenceTimerRef.current);
             silenceTimerRef.current = null;
+            setIsDetectingSilence(false);
           }
         }
       }
       
-      animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
+      }
     };
     
     checkAudioLevel();
   };
 
   const startRecording = async () => {
-    if (disabled || localIsRecording) {
+    if (disabled) {
+      console.log('Grabación deshabilitada');
+      return;
+    }
+    
+    // Si ya hay un mediaRecorder activo, no iniciar otro
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
+      console.log('Ya hay una grabación en curso');
       return;
     }
     
     console.log('Iniciando grabación...');
-    setLocalIsRecording(true);
     
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -108,9 +120,12 @@ const AudioRecorder = forwardRef(({
         console.log('Grabación detenida, procesando audio...');
         const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
         
-        // Solo enviar si hay datos grabados
-        if (blob.size > 0) {
+        // Solo enviar si hay datos grabados significativos (más de 1KB)
+        if (blob.size > 1000) {
+          console.log(`Enviando audio de ${blob.size} bytes`);
           onStop(blob);
+        } else {
+          console.log('Audio muy corto, no se envía');
         }
         
         // Limpiar recursos
@@ -119,7 +134,7 @@ const AudioRecorder = forwardRef(({
           streamRef.current = null;
         }
         
-        if (audioContextRef.current) {
+        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
           audioContextRef.current.close();
           audioContextRef.current = null;
         }
@@ -132,7 +147,7 @@ const AudioRecorder = forwardRef(({
         
         analyserRef.current = null;
         setAudioLevel(0);
-        setLocalIsRecording(false);
+        setIsDetectingSilence(false);
         setMediaRecorder(null);
       };
       
@@ -141,16 +156,18 @@ const AudioRecorder = forwardRef(({
       onStart();
       
       // Iniciar detección de silencio después de un pequeño retraso
-      setTimeout(() => {
-        if (analyserRef.current) {
-          detectSilence(analyserRef.current);
-        }
-      }, 500);
+      if (autoStop) {
+        setTimeout(() => {
+          if (analyserRef.current && recorder.state === 'recording') {
+            console.log('Iniciando detección de silencio...');
+            detectSilence(analyserRef.current);
+          }
+        }, 1000); // Esperar 1 segundo antes de empezar a detectar silencio
+      }
       
     } catch (error) {
       console.error('Error accessing microphone:', error);
       alert('No se pudo acceder al micrófono. Por favor, verifica los permisos.');
-      setLocalIsRecording(false);
     }
   };
 
@@ -160,6 +177,7 @@ const AudioRecorder = forwardRef(({
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
+      setIsDetectingSilence(false);
     }
     
     if (animationFrameRef.current) {
@@ -167,7 +185,7 @@ const AudioRecorder = forwardRef(({
       animationFrameRef.current = null;
     }
     
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    if (mediaRecorder && mediaRecorder.state === 'recording') {
       console.log('Deteniendo MediaRecorder...');
       mediaRecorder.stop();
     }
@@ -188,15 +206,15 @@ const AudioRecorder = forwardRef(({
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close();
       }
+      if (mediaRecorder && mediaRecorder.state === 'recording') {
+        mediaRecorder.stop();
+      }
     };
-  }, []);
-
-  // Usar el estado local para determinar si está grabando
-  const isCurrentlyRecording = localIsRecording || isRecording;
+  }, [mediaRecorder]);
 
   return (
     <div className="relative">
-      {!isCurrentlyRecording ? (
+      {!isRecording ? (
         <motion.button
           whileHover={!disabled ? { scale: 1.1 } : {}}
           whileTap={!disabled ? { scale: 0.9 } : {}}
@@ -226,7 +244,7 @@ const AudioRecorder = forwardRef(({
           {autoStop && (
             <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 w-24 h-3 bg-gray-200 rounded-full overflow-hidden">
               <motion.div 
-                className="h-full bg-gradient-to-r from-green-400 to-green-600"
+                className={`h-full ${isDetectingSilence ? 'bg-orange-500' : 'bg-gradient-to-r from-green-400 to-green-600'}`}
                 animate={{ width: `${Math.min(audioLevel * 2, 100)}%` }}
                 transition={{ duration: 0.05, ease: "linear" }}
               />
@@ -235,7 +253,7 @@ const AudioRecorder = forwardRef(({
         </div>
       )}
       
-      {isCurrentlyRecording && (
+      {isRecording && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -245,11 +263,11 @@ const AudioRecorder = forwardRef(({
         </motion.div>
       )}
       
-      {isCurrentlyRecording && autoStop && silenceTimerRef.current && (
+      {isRecording && autoStop && isDetectingSilence && (
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
-          className="absolute -bottom-14 left-1/2 transform -translate-x-1/2 text-xs text-gray-500"
+          className="absolute -bottom-14 left-1/2 transform -translate-x-1/2 text-xs text-orange-500 font-medium"
         >
           Detectando silencio...
         </motion.div>

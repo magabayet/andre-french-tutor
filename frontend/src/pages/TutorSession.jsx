@@ -157,8 +157,10 @@ function TutorSession() {
       currentAudio.current = null;
       
       // Iniciar grabación automática después de que termine el audio
-      if (autoRecord && audioRecorderRef.current) {
+      if (autoRecord && audioRecorderRef.current && !isRecording) {
         autoRecordTimeoutRef.current = setTimeout(() => {
+          console.log('Iniciando grabación automática...');
+          setIsRecording(true);
           audioRecorderRef.current.startRecording();
         }, 500); // Esperar 500ms antes de empezar a grabar
       }
