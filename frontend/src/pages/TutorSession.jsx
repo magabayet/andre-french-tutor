@@ -317,7 +317,7 @@ function TutorSession() {
                 isRecording={isRecording}
                 disabled={isPlayingAudio}
                 autoStop={true} // Activar parada automática por silencio
-                silenceDelay={1500} // Parar después de 1.5 segundos de silencio
+                silenceDelay={2200} // Parar después de 2.2 segundos de silencio
                 onStart={() => {
                   console.log('Grabación iniciada');
                   setIsRecording(true);

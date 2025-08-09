@@ -153,11 +153,56 @@ export class RealtimeService extends EventEmitter {
       const transcription = await this.openai.audio.transcriptions.create({
         file: fs.createReadStream(tempFilePath),
         model: 'whisper-1',
-        language: 'fr'
+        language: 'fr',
+        prompt: 'Conversation en français' // Ayuda a Whisper a entender el contexto
       });
       
       // Limpiar archivo temporal
       fs.unlinkSync(tempFilePath);
+      
+      // Detectar alucinaciones comunes de Whisper
+      const whisperHallucinations = [
+        'sous-titre',
+        'amara.org',
+        'subtitles',
+        'st\' 501',
+        'sous-titrage',
+        'cc by',
+        'translated by',
+        'subtítulos',
+        'www.',
+        '.com',
+        '.org',
+        'thank you for watching',
+        'merci d\'avoir regardé',
+        '[music]',
+        '[musique]',
+        '\u266a', // nota musical
+        'please subscribe',
+        'like and subscribe'
+      ];
+      
+      const lowerTranscript = transcription.text.toLowerCase().trim();
+      
+      // Verificar si es una alucinación
+      const isHallucination = whisperHallucinations.some(hallucination => 
+        lowerTranscript.includes(hallucination.toLowerCase())
+      );
+      
+      // Verificar si el texto es demasiado corto o solo puntuación
+      const isTooShort = transcription.text.trim().length < 2;
+      const isOnlyPunctuation = /^[.,!?¿¡\s]+$/.test(transcription.text);
+      
+      if (isHallucination || isTooShort || isOnlyPunctuation) {
+        console.log('Transcripción ignorada (posible alucinación):', transcription.text);
+        return {
+          type: 'audio_response',
+          audio: null,
+          transcript: "Je n'ai pas bien entendu. Pouvez-vous répéter s'il vous plaît?",
+          userTranscript: '',
+          corrections: []
+        };
+      }
 
       // Enfocar en conversación natural sin analizar pronunciación
 

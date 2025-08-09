@@ -13,6 +13,8 @@ const AudioRecorder = forwardRef(({
   const [localRecording, setLocalRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [isListening, setIsListening] = useState(false);
+  const [hasSpoken, setHasSpoken] = useState(false);
+  const [maxAudioLevel, setMaxAudioLevel] = useState(0);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const silenceTimerRef = useRef(null);
@@ -56,15 +58,33 @@ const AudioRecorder = forwardRef(({
       const normalizedLevel = Math.min(100, (average / 128) * 100);
       setAudioLevel(normalizedLevel);
       
+      // Actualizar nivel máximo detectado
+      if (normalizedLevel > maxAudioLevel) {
+        setMaxAudioLevel(normalizedLevel);
+      }
+      
+      // Marcar que el usuario ha hablado si el nivel es significativo
+      if (normalizedLevel > 15 && !hasSpoken) {
+        console.log('Usuario ha comenzado a hablar');
+        setHasSpoken(true);
+      }
+      
       // Detección de silencio para auto-stop
-      if (autoStop) {
-        if (normalizedLevel < 3) { // Umbral de silencio muy bajo
+      if (autoStop && hasSpoken) { // Solo detectar silencio si el usuario ha hablado
+        if (normalizedLevel < 5) { // Umbral de silencio aumentado
           if (!silenceTimerRef.current) {
-            console.log(`Silencio detectado (nivel: ${normalizedLevel.toFixed(2)}), iniciando timer...`);
+            console.log(`Silencio detectado (nivel: ${normalizedLevel.toFixed(2)}), max nivel: ${maxAudioLevel.toFixed(2)}`);
             setIsListening(false);
             silenceTimerRef.current = setTimeout(() => {
-              console.log('Auto-deteniendo por silencio prolongado');
-              handleStopRecording();
+              // Solo detener si el usuario realmente habló (nivel máximo significativo)
+              if (maxAudioLevel > 20) {
+                console.log('Auto-deteniendo por silencio prolongado');
+                handleStopRecording();
+              } else {
+                console.log('No se detectó habla real, continuando grabación');
+                silenceTimerRef.current = null;
+                setIsListening(true);
+              }
             }, silenceDelay);
           }
         } else {
@@ -74,7 +94,7 @@ const AudioRecorder = forwardRef(({
             clearTimeout(silenceTimerRef.current);
             silenceTimerRef.current = null;
             setIsListening(true);
-          } else if (!isListening && normalizedLevel > 5) {
+          } else if (!isListening && normalizedLevel > 8) {
             setIsListening(true);
           }
         }
@@ -98,6 +118,8 @@ const AudioRecorder = forwardRef(({
     console.log('Iniciando nueva grabación...');
     setLocalRecording(true);
     setIsListening(false);
+    setHasSpoken(false);
+    setMaxAudioLevel(0);
     
     try {
       // Obtener acceso al micrófono
@@ -269,6 +291,8 @@ const AudioRecorder = forwardRef(({
     setAudioLevel(0);
     setLocalRecording(false);
     setIsListening(false);
+    setHasSpoken(false);
+    setMaxAudioLevel(0);
   };
 
   // Cleanup al desmontar
@@ -381,7 +405,7 @@ const AudioRecorder = forwardRef(({
             exit={{ opacity: 0 }}
             className="absolute -bottom-20 left-1/2 transform -translate-x-1/2 text-xs text-orange-600 font-medium"
           >
-            Detectando silencio... (2.5s)
+            Detectando silencio... (2.2s)
           </motion.div>
         )}
       </AnimatePresence>
