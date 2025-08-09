@@ -1,6 +1,6 @@
-import { useState, useRef, forwardRef, useImperativeHandle, useEffect } from 'react';
+import { useState, useRef, forwardRef, useImperativeHandle, useEffect, useCallback } from 'react';
 import { Mic, MicOff, Square } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const AudioRecorder = forwardRef(({ 
   isRecording, 
@@ -8,270 +8,337 @@ const AudioRecorder = forwardRef(({
   onStop, 
   disabled = false,
   autoStop = false,
-  silenceDelay = 2000
+  silenceDelay = 2500
 }, ref) => {
-  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [localRecording, setLocalRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
-  const [isDetectingSilence, setIsDetectingSilence] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const silenceTimerRef = useRef(null);
+  const streamRef = useRef(null);
+  const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const animationFrameRef = useRef(null);
-  const audioContextRef = useRef(null);
-  const streamRef = useRef(null);
 
+  // Exponer métodos al componente padre
   useImperativeHandle(ref, () => ({
-    startRecording,
-    stopRecording
+    startRecording: handleStartRecording,
+    stopRecording: handleStopRecording
   }));
 
-  const detectSilence = (analyser) => {
+  const analyzeAudio = useCallback(() => {
+    if (!analyserRef.current || !localRecording) {
+      setAudioLevel(0);
+      return;
+    }
+
+    const analyser = analyserRef.current;
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     
-    const checkAudioLevel = () => {
-      if (!analyserRef.current) {
+    const checkLevel = () => {
+      if (!analyserRef.current || !localRecording) {
         return;
       }
-      
+
       analyser.getByteFrequencyData(dataArray);
-      const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
-      setAudioLevel(average);
       
-      // Si autoStop está activado, detectar silencio
-      if (autoStop && mediaRecorder && mediaRecorder.state === 'recording') {
-        if (average < 3) { // Umbral de silencio muy sensible
+      // Calcular el promedio del volumen
+      let sum = 0;
+      for (let i = 0; i < dataArray.length; i++) {
+        sum += dataArray[i];
+      }
+      const average = sum / dataArray.length;
+      
+      // Actualizar nivel de audio (normalizado 0-100)
+      const normalizedLevel = Math.min(100, (average / 128) * 100);
+      setAudioLevel(normalizedLevel);
+      
+      // Detección de silencio para auto-stop
+      if (autoStop) {
+        if (normalizedLevel < 5) { // Umbral de silencio
           if (!silenceTimerRef.current) {
-            console.log('Detectando silencio, iniciando timer...');
-            setIsDetectingSilence(true);
+            console.log('Iniciando timer de silencio...');
+            setIsListening(false);
             silenceTimerRef.current = setTimeout(() => {
-              console.log('Silencio detectado por 2 segundos, deteniendo grabación...');
-              stopRecording();
+              console.log('Auto-deteniendo por silencio');
+              handleStopRecording();
             }, silenceDelay);
           }
         } else {
-          // Si hay sonido, cancelar el timer de silencio
+          // Hay sonido, cancelar timer de silencio
           if (silenceTimerRef.current) {
-            console.log('Sonido detectado, cancelando timer de silencio');
+            console.log('Sonido detectado, cancelando timer');
             clearTimeout(silenceTimerRef.current);
             silenceTimerRef.current = null;
-            setIsDetectingSilence(false);
+            setIsListening(true);
           }
         }
       }
       
-      if (mediaRecorder && mediaRecorder.state === 'recording') {
-        animationFrameRef.current = requestAnimationFrame(checkAudioLevel);
-      }
+      animationFrameRef.current = requestAnimationFrame(checkLevel);
     };
     
-    checkAudioLevel();
-  };
+    checkLevel();
+  }, [localRecording, autoStop, silenceDelay]);
 
-  const startRecording = async () => {
-    if (disabled) {
-      console.log('Grabación deshabilitada');
+  const handleStartRecording = async () => {
+    if (disabled || localRecording) {
+      console.log('No se puede iniciar: disabled=', disabled, 'localRecording=', localRecording);
       return;
     }
-    
-    // Si ya hay un mediaRecorder activo, no iniciar otro
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-      console.log('Ya hay una grabación en curso');
-      return;
-    }
-    
-    console.log('Iniciando grabación...');
+
+    console.log('Iniciando nueva grabación...');
     
     try {
+      // Obtener acceso al micrófono
       const stream = await navigator.mediaDevices.getUserMedia({ 
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          sampleRate: 44100,
           autoGainControl: true
-        } 
+        }
       });
       
       streamRef.current = stream;
-      
-      // Configurar analizador de audio para detección de silencio
+
+      // Crear analizador de audio
       const audioContext = new (window.AudioContext || window.webkitAudioContext)();
       audioContextRef.current = audioContext;
       
       const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.3;
+      
       const source = audioContext.createMediaStreamSource(stream);
       source.connect(analyser);
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.8;
       analyserRef.current = analyser;
-      
-      const recorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm'
+
+      // Crear MediaRecorder
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: 'audio/webm;codecs=opus'
       });
       
       chunksRef.current = [];
       
-      recorder.ondataavailable = (event) => {
+      mediaRecorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           chunksRef.current.push(event.data);
         }
       };
       
-      recorder.onstop = () => {
-        console.log('Grabación detenida, procesando audio...');
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+      mediaRecorder.onstop = () => {
+        console.log('MediaRecorder detenido, procesando audio...');
         
-        // Solo enviar si hay datos grabados significativos (más de 1KB)
-        if (blob.size > 1000) {
-          console.log(`Enviando audio de ${blob.size} bytes`);
-          onStop(blob);
+        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        console.log('Tamaño del audio:', audioBlob.size, 'bytes');
+        
+        // Enviar el audio si tiene contenido
+        if (audioBlob.size > 500) {
+          onStop(audioBlob);
         } else {
-          console.log('Audio muy corto, no se envía');
+          console.log('Audio demasiado corto, no se envía');
         }
         
-        // Limpiar recursos
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach(track => track.stop());
-          streamRef.current = null;
-        }
-        
-        if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-          audioContextRef.current.close();
-          audioContextRef.current = null;
-        }
-        
-        // Limpiar el analizador
-        if (animationFrameRef.current) {
-          cancelAnimationFrame(animationFrameRef.current);
-          animationFrameRef.current = null;
-        }
-        
-        analyserRef.current = null;
-        setAudioLevel(0);
-        setIsDetectingSilence(false);
-        setMediaRecorder(null);
+        // Limpiar
+        cleanup();
       };
       
-      recorder.start();
-      setMediaRecorder(recorder);
+      mediaRecorder.onerror = (error) => {
+        console.error('Error en MediaRecorder:', error);
+        cleanup();
+      };
+      
+      // Iniciar grabación
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start(100); // Capturar datos cada 100ms
+      
+      setLocalRecording(true);
+      setIsListening(true);
       onStart();
       
-      // Iniciar detección de silencio después de un pequeño retraso
-      if (autoStop) {
-        setTimeout(() => {
-          if (analyserRef.current && recorder.state === 'recording') {
-            console.log('Iniciando detección de silencio...');
-            detectSilence(analyserRef.current);
-          }
-        }, 1000); // Esperar 1 segundo antes de empezar a detectar silencio
-      }
+      // Iniciar análisis de audio
+      setTimeout(() => {
+        analyzeAudio();
+      }, 100);
+      
+      console.log('Grabación iniciada exitosamente');
       
     } catch (error) {
-      console.error('Error accessing microphone:', error);
-      alert('No se pudo acceder al micrófono. Por favor, verifica los permisos.');
+      console.error('Error al acceder al micrófono:', error);
+      alert('No se pudo acceder al micrófono. Verifica los permisos.');
+      cleanup();
     }
   };
 
-  const stopRecording = () => {
-    console.log('Función stopRecording llamada');
+  const handleStopRecording = () => {
+    console.log('Deteniendo grabación...');
     
+    // Cancelar timer de silencio
     if (silenceTimerRef.current) {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
-      setIsDetectingSilence(false);
     }
     
+    // Detener MediaRecorder
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      try {
+        mediaRecorderRef.current.stop();
+        console.log('MediaRecorder detenido');
+      } catch (error) {
+        console.error('Error al detener MediaRecorder:', error);
+      }
+    }
+    
+    setLocalRecording(false);
+    setIsListening(false);
+  };
+
+  const cleanup = () => {
+    console.log('Limpiando recursos...');
+    
+    // Cancelar animación
     if (animationFrameRef.current) {
       cancelAnimationFrame(animationFrameRef.current);
       animationFrameRef.current = null;
     }
     
-    if (mediaRecorder && mediaRecorder.state === 'recording') {
-      console.log('Deteniendo MediaRecorder...');
-      mediaRecorder.stop();
+    // Cerrar stream
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => {
+        track.stop();
+      });
+      streamRef.current = null;
     }
+    
+    // Cerrar audio context
+    if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    
+    // Limpiar referencias
+    analyserRef.current = null;
+    mediaRecorderRef.current = null;
+    setAudioLevel(0);
+    setLocalRecording(false);
+    setIsListening(false);
   };
 
+  // Cleanup al desmontar
   useEffect(() => {
     return () => {
-      // Limpieza al desmontar el componente
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
       }
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
-      }
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close();
-      }
-      if (mediaRecorder && mediaRecorder.state === 'recording') {
-        mediaRecorder.stop();
-      }
+      cleanup();
     };
-  }, [mediaRecorder]);
+  }, []);
+
+  // Sincronizar con prop externa
+  useEffect(() => {
+    if (!isRecording && localRecording) {
+      handleStopRecording();
+    }
+  }, [isRecording]);
+
+  const showRecording = localRecording || isRecording;
 
   return (
     <div className="relative">
-      {!isRecording ? (
+      {!showRecording ? (
         <motion.button
           whileHover={!disabled ? { scale: 1.1 } : {}}
-          whileTap={!disabled ? { scale: 0.9 } : {}}
-          onClick={startRecording}
+          whileTap={!disabled ? { scale: 0.95 } : {}}
+          onClick={handleStartRecording}
           disabled={disabled}
-          className={`p-4 text-white rounded-full transition-colors shadow-lg ${
+          className={`p-4 rounded-full shadow-lg transition-all ${
             disabled 
               ? 'bg-gray-400 cursor-not-allowed' 
-              : 'bg-french-red hover:bg-red-700 cursor-pointer'
+              : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 cursor-pointer'
           }`}
         >
-          <Mic className="w-6 h-6" />
+          <Mic className="w-6 h-6 text-white" />
         </motion.button>
       ) : (
         <div className="relative">
           <motion.button
-            animate={{ scale: [1, 1.1, 1] }}
-            transition={{ repeat: Infinity, duration: 1.5 }}
-            onClick={stopRecording}
-            className="p-4 bg-red-600 text-white rounded-full hover:bg-red-700 transition-colors shadow-lg relative"
+            animate={{ scale: [1, 1.05, 1] }}
+            transition={{ 
+              repeat: Infinity, 
+              duration: 2,
+              ease: "easeInOut"
+            }}
+            onClick={handleStopRecording}
+            className="p-4 bg-gradient-to-r from-red-600 to-red-700 rounded-full shadow-lg hover:from-red-700 hover:to-red-800 transition-all relative"
           >
-            <Square className="w-6 h-6" />
-            <span className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+            <Square className="w-6 h-6 text-white" />
+            <motion.span 
+              animate={{ opacity: [1, 0.5, 1] }}
+              transition={{ repeat: Infinity, duration: 1 }}
+              className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"
+            />
           </motion.button>
           
-          {/* Indicador de nivel de audio */}
+          {/* Visualizador de audio mejorado */}
           {autoStop && (
-            <div className="absolute -bottom-8 left-1/2 transform -translate-x-1/2 w-24 h-3 bg-gray-200 rounded-full overflow-hidden">
-              <motion.div 
-                className={`h-full ${isDetectingSilence ? 'bg-orange-500' : 'bg-gradient-to-r from-green-400 to-green-600'}`}
-                animate={{ width: `${Math.min(audioLevel * 2, 100)}%` }}
-                transition={{ duration: 0.05, ease: "linear" }}
-              />
+            <div className="absolute -bottom-10 left-1/2 transform -translate-x-1/2">
+              <div className="flex items-center gap-1">
+                {[...Array(5)].map((_, i) => (
+                  <motion.div
+                    key={i}
+                    className={`w-2 rounded-full transition-all ${
+                      audioLevel > i * 20 
+                        ? isListening 
+                          ? 'bg-green-500' 
+                          : 'bg-orange-500'
+                        : 'bg-gray-300'
+                    }`}
+                    animate={{
+                      height: audioLevel > i * 20 ? `${Math.min(20, audioLevel - i * 20)}px` : '4px'
+                    }}
+                    transition={{ duration: 0.1 }}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>
       )}
       
-      {isRecording && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="absolute -top-10 left-1/2 transform -translate-x-1/2 text-sm text-red-600 font-medium whitespace-nowrap"
-        >
-          {autoStop ? 'Habla... (se detendrá automáticamente)' : 'Grabando...'}
-        </motion.div>
-      )}
+      {/* Indicadores de estado */}
+      <AnimatePresence>
+        {showRecording && (
+          <motion.div
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 5 }}
+            className="absolute -top-12 left-1/2 transform -translate-x-1/2 whitespace-nowrap"
+          >
+            <span className="text-sm font-medium text-red-600">
+              {autoStop 
+                ? isListening 
+                  ? '🎤 Escuchando...' 
+                  : '⏱️ Finalizando...'
+                : '🔴 Grabando...'}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
       
-      {isRecording && autoStop && isDetectingSilence && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="absolute -bottom-14 left-1/2 transform -translate-x-1/2 text-xs text-orange-500 font-medium"
-        >
-          Detectando silencio...
-        </motion.div>
-      )}
+      {/* Indicador de silencio */}
+      <AnimatePresence>
+        {showRecording && autoStop && !isListening && silenceTimerRef.current && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute -bottom-16 left-1/2 transform -translate-x-1/2 text-xs text-orange-600 font-medium"
+          >
+            Detectando silencio...
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 });
