@@ -1,4 +1,4 @@
-import { useState, useRef, forwardRef, useImperativeHandle, useEffect, useCallback } from 'react';
+import { useState, useRef, forwardRef, useImperativeHandle, useEffect } from 'react';
 import { Mic, MicOff, Square } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -27,17 +27,19 @@ const AudioRecorder = forwardRef(({
     stopRecording: handleStopRecording
   }));
 
-  const analyzeAudio = useCallback(() => {
-    if (!analyserRef.current || !localRecording) {
-      setAudioLevel(0);
+  const analyzeAudio = () => {
+    const analyser = analyserRef.current;
+    if (!analyser || !mediaRecorderRef.current) {
+      console.log('No hay analyser o mediaRecorder disponible');
       return;
     }
 
-    const analyser = analyserRef.current;
     const dataArray = new Uint8Array(analyser.frequencyBinCount);
     
     const checkLevel = () => {
-      if (!analyserRef.current || !localRecording) {
+      // Verificar que todavía estamos grabando
+      if (!mediaRecorderRef.current || mediaRecorderRef.current.state !== 'recording') {
+        console.log('MediaRecorder no está grabando, deteniendo análisis');
         return;
       }
 
@@ -56,31 +58,36 @@ const AudioRecorder = forwardRef(({
       
       // Detección de silencio para auto-stop
       if (autoStop) {
-        if (normalizedLevel < 5) { // Umbral de silencio
+        if (normalizedLevel < 3) { // Umbral de silencio muy bajo
           if (!silenceTimerRef.current) {
-            console.log('Iniciando timer de silencio...');
+            console.log(`Silencio detectado (nivel: ${normalizedLevel.toFixed(2)}), iniciando timer...`);
             setIsListening(false);
             silenceTimerRef.current = setTimeout(() => {
-              console.log('Auto-deteniendo por silencio');
+              console.log('Auto-deteniendo por silencio prolongado');
               handleStopRecording();
             }, silenceDelay);
           }
         } else {
           // Hay sonido, cancelar timer de silencio
           if (silenceTimerRef.current) {
-            console.log('Sonido detectado, cancelando timer');
+            console.log(`Sonido detectado (nivel: ${normalizedLevel.toFixed(2)}), cancelando timer`);
             clearTimeout(silenceTimerRef.current);
             silenceTimerRef.current = null;
+            setIsListening(true);
+          } else if (!isListening && normalizedLevel > 5) {
             setIsListening(true);
           }
         }
       }
       
+      // Continuar el análisis
       animationFrameRef.current = requestAnimationFrame(checkLevel);
     };
     
+    // Iniciar el loop de análisis
+    console.log('Iniciando análisis de audio...');
     checkLevel();
-  }, [localRecording, autoStop, silenceDelay]);
+  };
 
   const handleStartRecording = async () => {
     if (disabled || localRecording) {
@@ -89,6 +96,8 @@ const AudioRecorder = forwardRef(({
     }
 
     console.log('Iniciando nueva grabación...');
+    setLocalRecording(true);
+    setIsListening(false);
     
     try {
       // Obtener acceso al micrófono
@@ -96,10 +105,12 @@ const AudioRecorder = forwardRef(({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          sampleRate: 44100
         }
       });
       
+      console.log('Stream de audio obtenido');
       streamRef.current = stream;
 
       // Crear analizador de audio
@@ -107,12 +118,15 @@ const AudioRecorder = forwardRef(({
       audioContextRef.current = audioContext;
       
       const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.3;
+      analyser.fftSize = 512; // Más resolución
+      analyser.smoothingTimeConstant = 0.4;
+      analyser.minDecibels = -90;
+      analyser.maxDecibels = -10;
       
       const source = audioContext.createMediaStreamSource(stream);
       source.connect(analyser);
       analyserRef.current = analyser;
+      console.log('Analizador de audio configurado');
 
       // Crear MediaRecorder
       const mediaRecorder = new MediaRecorder(stream, {
@@ -122,25 +136,31 @@ const AudioRecorder = forwardRef(({
       chunksRef.current = [];
       
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
+        if (event.data && event.data.size > 0) {
           chunksRef.current.push(event.data);
+          console.log('Chunk de audio recibido:', event.data.size, 'bytes');
         }
       };
       
       mediaRecorder.onstop = () => {
-        console.log('MediaRecorder detenido, procesando audio...');
+        console.log('MediaRecorder.onstop llamado');
         
-        const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
-        console.log('Tamaño del audio:', audioBlob.size, 'bytes');
-        
-        // Enviar el audio si tiene contenido
-        if (audioBlob.size > 500) {
-          onStop(audioBlob);
+        if (chunksRef.current.length > 0) {
+          const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
+          console.log('Audio blob creado:', audioBlob.size, 'bytes');
+          
+          // Enviar el audio si tiene contenido significativo
+          if (audioBlob.size > 1000) {
+            console.log('Enviando audio al componente padre');
+            onStop(audioBlob);
+          } else {
+            console.log('Audio muy corto, no se envía');
+          }
         } else {
-          console.log('Audio demasiado corto, no se envía');
+          console.log('No hay chunks de audio para procesar');
         }
         
-        // Limpiar
+        // Limpiar todo
         cleanup();
       };
       
@@ -148,31 +168,39 @@ const AudioRecorder = forwardRef(({
         console.error('Error en MediaRecorder:', error);
         cleanup();
       };
+
+      mediaRecorder.onstart = () => {
+        console.log('MediaRecorder.onstart - Grabación iniciada');
+      };
       
-      // Iniciar grabación
+      // Guardar referencia y empezar a grabar
       mediaRecorderRef.current = mediaRecorder;
-      mediaRecorder.start(100); // Capturar datos cada 100ms
+      mediaRecorder.start(250); // Capturar datos cada 250ms
       
-      setLocalRecording(true);
-      setIsListening(true);
-      onStart();
+      // Notificar al padre
+      if (onStart) {
+        onStart();
+      }
       
-      // Iniciar análisis de audio
+      // Iniciar análisis de audio después de un pequeño delay
       setTimeout(() => {
-        analyzeAudio();
-      }, 100);
+        if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+          analyzeAudio();
+        }
+      }, 500);
       
       console.log('Grabación iniciada exitosamente');
       
     } catch (error) {
       console.error('Error al acceder al micrófono:', error);
       alert('No se pudo acceder al micrófono. Verifica los permisos.');
+      setLocalRecording(false);
       cleanup();
     }
   };
 
   const handleStopRecording = () => {
-    console.log('Deteniendo grabación...');
+    console.log('handleStopRecording llamado');
     
     // Cancelar timer de silencio
     if (silenceTimerRef.current) {
@@ -180,18 +208,32 @@ const AudioRecorder = forwardRef(({
       silenceTimerRef.current = null;
     }
     
-    // Detener MediaRecorder
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      try {
-        mediaRecorderRef.current.stop();
-        console.log('MediaRecorder detenido');
-      } catch (error) {
-        console.error('Error al detener MediaRecorder:', error);
-      }
+    // Cancelar análisis de audio
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
     }
     
-    setLocalRecording(false);
-    setIsListening(false);
+    // Detener MediaRecorder
+    if (mediaRecorderRef.current) {
+      const state = mediaRecorderRef.current.state;
+      console.log('Estado del MediaRecorder:', state);
+      
+      if (state === 'recording') {
+        try {
+          mediaRecorderRef.current.stop();
+          console.log('MediaRecorder.stop() llamado');
+        } catch (error) {
+          console.error('Error al detener MediaRecorder:', error);
+        }
+      } else {
+        console.log('MediaRecorder no está grabando, limpiando...');
+        cleanup();
+      }
+    } else {
+      console.log('No hay MediaRecorder activo');
+      setLocalRecording(false);
+    }
   };
 
   const cleanup = () => {
@@ -207,19 +249,23 @@ const AudioRecorder = forwardRef(({
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => {
         track.stop();
+        console.log('Track de audio detenido');
       });
       streamRef.current = null;
     }
     
     // Cerrar audio context
     if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-      audioContextRef.current.close();
+      audioContextRef.current.close().then(() => {
+        console.log('AudioContext cerrado');
+      });
       audioContextRef.current = null;
     }
     
-    // Limpiar referencias
+    // Limpiar referencias y estado
     analyserRef.current = null;
     mediaRecorderRef.current = null;
+    chunksRef.current = [];
     setAudioLevel(0);
     setLocalRecording(false);
     setIsListening(false);
@@ -228,6 +274,7 @@ const AudioRecorder = forwardRef(({
   // Cleanup al desmontar
   useEffect(() => {
     return () => {
+      console.log('Componente desmontándose, limpiando...');
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current);
       }
@@ -235,12 +282,13 @@ const AudioRecorder = forwardRef(({
     };
   }, []);
 
-  // Sincronizar con prop externa
+  // Sincronizar con prop externa isRecording
   useEffect(() => {
     if (!isRecording && localRecording) {
+      console.log('Prop isRecording cambió a false, deteniendo...');
       handleStopRecording();
     }
-  }, [isRecording]);
+  }, [isRecording, localRecording]);
 
   const showRecording = localRecording || isRecording;
 
@@ -295,11 +343,15 @@ const AudioRecorder = forwardRef(({
                         : 'bg-gray-300'
                     }`}
                     animate={{
-                      height: audioLevel > i * 20 ? `${Math.min(20, audioLevel - i * 20)}px` : '4px'
+                      height: audioLevel > i * 20 ? `${Math.min(24, 8 + (audioLevel - i * 20) * 0.8)}px` : '4px'
                     }}
                     transition={{ duration: 0.1 }}
                   />
                 ))}
+              </div>
+              {/* Debug: Mostrar nivel actual */}
+              <div className="text-xs text-gray-500 text-center mt-1">
+                {audioLevel.toFixed(0)}
               </div>
             </div>
           )}
@@ -333,9 +385,9 @@ const AudioRecorder = forwardRef(({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="absolute -bottom-16 left-1/2 transform -translate-x-1/2 text-xs text-orange-600 font-medium"
+            className="absolute -bottom-20 left-1/2 transform -translate-x-1/2 text-xs text-orange-600 font-medium"
           >
-            Detectando silencio...
+            Detectando silencio... (2.5s)
           </motion.div>
         )}
       </AnimatePresence>
