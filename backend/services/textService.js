@@ -6,7 +6,7 @@ export class TextService {
   async processText(session, text) {
     try {
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4',
         messages: [
           { role: 'system', content: session.systemPrompt },
           ...session.conversation.slice(-10), // Mantener más contexto

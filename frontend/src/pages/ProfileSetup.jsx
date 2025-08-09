@@ -20,8 +20,8 @@ function ProfileSetup() {
     }
 
     const ageNum = parseInt(age);
-    if (ageNum < 5 || ageNum > 40) {
-      toast.error('La edad debe estar entre 5 y 40 años');
+    if (ageNum < 5) {
+      toast.error('La edad mínima es 5 años');
       return;
     }
 
@@ -53,8 +53,12 @@ function ProfileSetup() {
       return 'Temas modernos y conversaciones dinámicas';
     } else if (ageNum >= 18 && ageNum <= 25) {
       return 'Enfoque práctico para universidad y trabajo';
-    } else {
+    } else if (ageNum >= 26 && ageNum <= 40) {
       return 'Contenido profesional y cultural avanzado';
+    } else if (ageNum >= 41 && ageNum <= 60) {
+      return 'Conversaciones sofisticadas y temas culturales';
+    } else {
+      return 'Práctica conversacional adaptada a tu experiencia';
     }
   };
 
@@ -95,9 +99,8 @@ function ProfileSetup() {
               value={age}
               onChange={(e) => setAge(e.target.value)}
               min="5"
-              max="40"
               className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-french-blue focus:outline-none transition-colors"
-              placeholder="Entre 5 y 40 años"
+              placeholder="Mínimo 5 años"
             />
             {age && (
               <motion.p

@@ -63,11 +63,21 @@ export class RealtimeService extends EventEmitter {
       situaciones prácticas como viajes, universidad, trabajo. Usa un tono respetuoso y directo.`;
       exercises = `Ejercicios recomendados: entrevistas de trabajo, pedir direcciones, 
       hacer reservaciones, conversaciones sociales, describir experiencias.`;
-    } else {
+    } else if (age >= 26 && age <= 40) {
       ageAdaptation = `Eres un tutor profesional para adultos. Enfócate en objetivos 
       específicos como negocios, viajes, cultura. Usa un enfoque estructurado y eficiente.`;
       exercises = `Ejercicios recomendados: negociaciones, presentaciones profesionales, 
       conversaciones formales, análisis de noticias, debates sobre temas actuales.`;
+    } else if (age >= 41 && age <= 60) {
+      ageAdaptation = `Eres un tutor sofisticado para adultos experimentados. Enfócate en 
+      conversaciones culturales profundas, literatura, arte, historia. Usa un tono culto y enriquecedor.`;
+      exercises = `Ejercicios recomendados: discusiones culturales, análisis literario, 
+      debates filosóficos, conversaciones sobre arte e historia, temas de actualidad mundial.`;
+    } else {
+      ageAdaptation = `Eres un tutor experimentado y paciente. Adapta tu ritmo al estudiante, 
+      enfócate en conversación práctica y disfrute del idioma. Usa un tono amable y motivador.`;
+      exercises = `Ejercicios recomendados: conversaciones sobre experiencias de vida, 
+      viajes, familia, tradiciones, hobbies, cultura francéfona.`;
     }
 
     return `Tu nombre es André y eres un profesor nativo de francés de París, especializado en enseñar a hispanohablantes.
@@ -85,11 +95,11 @@ export class RealtimeService extends EventEmitter {
     4. NUNCA inventes palabras o uses francés incorrecto
     5. ${exercises}
     
-    DETECCIÓN DE ERRORES:
-    1. SOLO corrige si hay un error REAL (no corrijas pronunciación perfecta)
-    2. Si el estudiante comete un error, corrígelo amablemente
-    3. Después de corregir, haz que repita: "Répète après moi..."
-    4. NO corrijas si el estudiante habla correctamente
+    ENFOQUE DE CORRECCIÓN:
+    1. SOLO corrige errores gramaticales significativos
+    2. Si el estudiante comete un error de gramática, explícalo brevemente
+    3. Mantén el flujo conversacional natural
+    4. Prioriza la comunicación sobre la perfección
     
     ESTRUCTURA DE INTERACCIÓN:
     1. Saluda en francés y pregunta cómo está el estudiante
@@ -98,13 +108,12 @@ export class RealtimeService extends EventEmitter {
     4. Corrige pronunciación y gramática de manera constructiva
     5. Celebra los aciertos y motiva constantemente
     
-    CORRECCIONES OBLIGATORIAS:
-    - SIEMPRE corrige errores de pronunciación: "Attention à la prononciation!"
+    CORRECCIONES GRAMATICALES:
     - Para gramática: "Attention! On dit plutôt..." seguido de la forma correcta
     - Para vocabulario incorrecto: "Le mot correct est..."
-    - Explica el error en español y luego da la forma correcta
-    - SIEMPRE haz que repitan: "Répétez après moi..."
-    - Si detectas un error común, dedica tiempo a practicarlo
+    - Explica brevemente el error si es importante
+    - Continúa la conversación de forma natural
+    - Enfócate en mantener la fluidez de la conversación
     
     RECUERDA:
     - Sé paciente y amable
@@ -141,39 +150,14 @@ export class RealtimeService extends EventEmitter {
       // Limpiar archivo temporal
       fs.unlinkSync(tempFilePath);
 
-      // Solo analizar si el texto parece tener errores
-      let corrections = null;
-      const frenchText = transcription.text.toLowerCase();
-      
-      // Lista de errores comunes reales
-      const commonErrors = {
-        'je suis': ['ye suis', 'che suis', 'je souis'],
-        'bonjour': ['bonyor', 'bonchour'],
-        'comment allez-vous': ['coman ale vu', 'comment alle vous'],
-        'très bien': ['tre bien', 'très bién'],
-        'merci beaucoup': ['mersi boku', 'merci bocú']
-      };
-      
-      let hasError = false;
-      let errorCorrection = '';
-      
-      // Verificar errores específicos
-      for (const [correct, errors] of Object.entries(commonErrors)) {
-        for (const error of errors) {
-          if (frenchText.includes(error)) {
-            hasError = true;
-            errorCorrection = `CORRECTION: Le estudiante dijo "${error}" pero debe decir "${correct}". `;
-            break;
-          }
-        }
-      }
+      // Enfocar en conversación natural sin analizar pronunciación
 
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-3.5-turbo',
+        model: 'gpt-4',
         messages: [
           { 
             role: 'system', 
-            content: session.systemPrompt + (hasError ? `\n\n${errorCorrection}DEBES corregir este error específico.` : '\n\nEl estudiante habló correctamente, NO corrijas si no hay errores reales.')
+            content: session.systemPrompt
           },
           ...session.conversation.slice(-10), // Mantener más contexto
           { role: 'user', content: transcription.text }

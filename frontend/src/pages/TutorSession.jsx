@@ -14,6 +14,10 @@ function TutorSession() {
   const [isConnected, setIsConnected] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [autoRecord, setAutoRecord] = useState(true); // Activar grabación automática
+  const autoRecordTimeoutRef = useRef(null);
+  const silenceTimeoutRef = useRef(null);
+  const audioRecorderRef = useRef(null);
   const ws = useRef(null);
   const messagesEndRef = useRef(null);
   const currentAudio = useRef(null);
@@ -151,6 +155,13 @@ function TutorSession() {
     audio.addEventListener('ended', () => {
       setIsPlayingAudio(false);
       currentAudio.current = null;
+      
+      // Iniciar grabación automática después de que termine el audio
+      if (autoRecord && audioRecorderRef.current) {
+        autoRecordTimeoutRef.current = setTimeout(() => {
+          audioRecorderRef.current.startRecording();
+        }, 500); // Esperar 500ms antes de empezar a grabar
+      }
     });
     
     audio.addEventListener('error', () => {
@@ -247,11 +258,18 @@ function TutorSession() {
           <div className="flex items-center gap-3">
             <div className="relative">
               <AudioRecorder
+                ref={audioRecorderRef}
                 isRecording={isRecording}
                 disabled={isPlayingAudio}
+                autoStop={true} // Activar parada automática por silencio
+                silenceDelay={2000} // Parar después de 2 segundos de silencio
                 onStart={() => {
                   if (!isPlayingAudio) {
                     setIsRecording(true);
+                    // Limpiar timeouts anteriores
+                    if (autoRecordTimeoutRef.current) {
+                      clearTimeout(autoRecordTimeoutRef.current);
+                    }
                   } else {
                     toast.error('Espera a que André termine de hablar');
                   }
@@ -287,8 +305,22 @@ function TutorSession() {
             </form>
           </div>
           
-          <div className="mt-3 text-center text-sm text-gray-500">
-            Habla en francés y André te corregirá y ayudará a mejorar
+          <div className="mt-3 space-y-2">
+            <div className="text-center text-sm text-gray-500">
+              Habla en francés y André te ayudará con la gramática
+            </div>
+            <div className="flex items-center justify-center gap-2">
+              <input
+                type="checkbox"
+                id="autoRecord"
+                checked={autoRecord}
+                onChange={(e) => setAutoRecord(e.target.checked)}
+                className="rounded"
+              />
+              <label htmlFor="autoRecord" className="text-sm text-gray-600">
+                Grabación automática después de cada respuesta
+              </label>
+            </div>
           </div>
         </div>
       </div>
