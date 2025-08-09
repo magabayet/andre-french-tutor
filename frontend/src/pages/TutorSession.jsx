@@ -11,6 +11,7 @@ function TutorSession() {
   const [profile, setProfile] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isRecording, setIsRecording] = useState(false);
+  const [isSendingAudio, setIsSendingAudio] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -164,14 +165,14 @@ function TutorSession() {
       currentAudio.current = null;
       
       // Iniciar grabación automática después de que termine el audio
-      if (autoRecord && audioRecorderRef.current && !isRecording) {
+      if (autoRecord && audioRecorderRef.current && !isRecording && !isSendingAudio) {
         // Limpiar cualquier timeout anterior
         if (autoRecordTimeoutRef.current) {
           clearTimeout(autoRecordTimeoutRef.current);
         }
         
         autoRecordTimeoutRef.current = setTimeout(() => {
-          if (!isRecording && !isPlayingAudio) {
+          if (!isRecording && !isPlayingAudio && !isSendingAudio) {
             console.log('Iniciando grabación automática...');
             audioRecorderRef.current.startRecording();
           }
@@ -291,7 +292,12 @@ function TutorSession() {
                   console.log('Grabación detenida, procesando blob de', blob.size, 'bytes');
                   setIsRecording(false);
                   if (blob && blob.size > 1000) {
+                    setIsSendingAudio(true);
                     handleAudioData(blob);
+                    // Evitar nueva grabación automática inmediata
+                    setTimeout(() => {
+                      setIsSendingAudio(false);
+                    }, 2000);
                   }
                 }}
               />

@@ -282,13 +282,7 @@ const AudioRecorder = forwardRef(({
     };
   }, []);
 
-  // Sincronizar con prop externa isRecording
-  useEffect(() => {
-    if (!isRecording && localRecording) {
-      console.log('Prop isRecording cambió a false, deteniendo...');
-      handleStopRecording();
-    }
-  }, [isRecording, localRecording]);
+  // No sincronizar automáticamente - dejar que el componente maneje su propio estado
 
   const showRecording = localRecording || isRecording;
 
