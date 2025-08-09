@@ -153,7 +153,7 @@ export class RealtimeService extends EventEmitter {
       // Enfocar en conversación natural sin analizar pronunciación
 
       const completion = await this.openai.chat.completions.create({
-        model: 'gpt-5',
+        model: 'gpt-4o-mini',
         messages: [
           { 
             role: 'system', 
