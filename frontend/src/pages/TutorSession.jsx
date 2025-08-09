@@ -12,6 +12,7 @@ function TutorSession() {
   const [messages, setMessages] = useState([]);
   const [isRecording, setIsRecording] = useState(false);
   const [isSendingAudio, setIsSendingAudio] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
@@ -103,6 +104,7 @@ function TutorSession() {
           msg.isWelcome ? { ...msg, audio: data.audio } : msg
         ));
         if (data.audio) {
+          setIsProcessing(false);
           playAudio(data.audio);
         }
       } else if (data.type === 'audio_response' || data.type === 'text_response') {
@@ -125,6 +127,7 @@ function TutorSession() {
         }]);
         
         if (data.audio) {
+          setIsProcessing(false);
           playAudio(data.audio);
         }
       }
@@ -193,6 +196,7 @@ function TutorSession() {
   };
 
   const handleAudioData = (audioBlob) => {
+    setIsProcessing(true);
     const reader = new FileReader();
     reader.onloadend = () => {
       const base64Audio = reader.result.split(',')[1];
@@ -201,7 +205,13 @@ function TutorSession() {
           type: 'audio_chunk',
           audio: base64Audio
         }));
+      } else {
+        setIsProcessing(false);
       }
+    };
+    reader.onerror = () => {
+      setIsProcessing(false);
+      console.error('Error al leer el audio');
     };
     reader.readAsDataURL(audioBlob);
   };
@@ -268,6 +278,35 @@ function TutorSession() {
             ))}
           </AnimatePresence>
           <div ref={messagesEndRef} />
+          
+          {/* Indicador de procesamiento */}
+          {isProcessing && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.8 }}
+              className="flex items-center gap-3 mt-4 p-3 bg-blue-50 rounded-lg"
+            >
+              <div className="flex gap-1">
+                <motion.div
+                  animate={{ y: [0, -10, 0] }}
+                  transition={{ repeat: Infinity, duration: 0.6, delay: 0 }}
+                  className="w-2 h-2 bg-french-blue rounded-full"
+                />
+                <motion.div
+                  animate={{ y: [0, -10, 0] }}
+                  transition={{ repeat: Infinity, duration: 0.6, delay: 0.1 }}
+                  className="w-2 h-2 bg-french-blue rounded-full"
+                />
+                <motion.div
+                  animate={{ y: [0, -10, 0] }}
+                  transition={{ repeat: Infinity, duration: 0.6, delay: 0.2 }}
+                  className="w-2 h-2 bg-french-blue rounded-full"
+                />
+              </div>
+              <span className="text-sm text-gray-600">André está procesando tu mensaje...</span>
+            </motion.div>
+          )}
         </div>
 
         <div className="bg-white rounded-xl shadow-lg p-4">
@@ -278,7 +317,7 @@ function TutorSession() {
                 isRecording={isRecording}
                 disabled={isPlayingAudio}
                 autoStop={true} // Activar parada automática por silencio
-                silenceDelay={2000} // Parar después de 2 segundos de silencio
+                silenceDelay={1500} // Parar después de 1.5 segundos de silencio
                 onStart={() => {
                   console.log('Grabación iniciada');
                   setIsRecording(true);
