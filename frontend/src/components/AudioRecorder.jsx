@@ -1,6 +1,6 @@
 import { useState, useRef, forwardRef, useImperativeHandle, useEffect } from 'react';
 import { Mic, MicOff, Square } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 
 const AudioRecorder = forwardRef(({ 
   isRecording, 
@@ -8,13 +8,17 @@ const AudioRecorder = forwardRef(({
   onStop, 
   disabled = false,
   autoStop = false,
-  silenceDelay = 2500
+  silenceDelay = 2500,
+  silenceThreshold = 10,
+  relativeSilenceRatio = 0.18,
+  showDebug = false
 }, ref) => {
   const [localRecording, setLocalRecording] = useState(false);
   const [audioLevel, setAudioLevel] = useState(0);
   const [isListening, setIsListening] = useState(false);
   const [hasSpoken, setHasSpoken] = useState(false);
   const [maxAudioLevel, setMaxAudioLevel] = useState(0);
+  const [debugThreshold, setDebugThreshold] = useState(0);
   const mediaRecorderRef = useRef(null);
   const chunksRef = useRef([]);
   const silenceTimerRef = useRef(null);
@@ -22,6 +26,8 @@ const AudioRecorder = forwardRef(({
   const audioContextRef = useRef(null);
   const analyserRef = useRef(null);
   const animationFrameRef = useRef(null);
+  const lastUiUpdateRef = useRef(0);
+  const lastAboveThresholdRef = useRef(Date.now());
 
   // Exponer métodos al componente padre
   useImperativeHandle(ref, () => ({
@@ -36,7 +42,8 @@ const AudioRecorder = forwardRef(({
       return;
     }
 
-    const dataArray = new Uint8Array(analyser.frequencyBinCount);
+    const timeDomainArray = new Uint8Array(analyser.fftSize);
+    const floatTimeArray = new Float32Array(analyser.fftSize);
     
     const checkLevel = () => {
       // Verificar que todavía estamos grabando
@@ -45,43 +52,70 @@ const AudioRecorder = forwardRef(({
         return;
       }
 
-      analyser.getByteFrequencyData(dataArray);
-      
-      // Calcular el promedio del volumen
-      let sum = 0;
-      for (let i = 0; i < dataArray.length; i++) {
-        sum += dataArray[i];
+      // Obtener datos en float y byte para robustez
+      if (analyser.getFloatTimeDomainData) {
+        analyser.getFloatTimeDomainData(floatTimeArray);
+      } else {
+        analyser.getByteTimeDomainData(timeDomainArray);
+        for (let i = 0; i < timeDomainArray.length; i++) {
+          floatTimeArray[i] = (timeDomainArray[i] - 128) / 128;
+        }
       }
-      const average = sum / dataArray.length;
       
-      // Actualizar nivel de audio (normalizado 0-100)
-      const normalizedLevel = Math.min(100, (average / 128) * 100);
+      // Calcular RMS y pico
+      let sumSquares = 0;
+      let peak = 0;
+      for (let i = 0; i < floatTimeArray.length; i++) {
+        const v = floatTimeArray[i];
+        sumSquares += v * v;
+        const abs = Math.abs(v);
+        if (abs > peak) peak = abs;
+      }
+      const rms = Math.sqrt(sumSquares / floatTimeArray.length);
+      
+      // Nivel combinado para una UI sensible
+      const levelFromRms = rms * 6000;   // factor alto para mics con señal baja
+      const levelFromPeak = peak * 800;  // aporta reactividad instantánea
+      const normalizedLevel = Math.min(100, Math.max(0, Math.max(levelFromRms, levelFromPeak)));
+      
+      // Actualizar nivel de audio (siempre, para una UI fluida)
       setAudioLevel(normalizedLevel);
-      
+
       // Actualizar nivel máximo detectado
       if (normalizedLevel > maxAudioLevel) {
         setMaxAudioLevel(normalizedLevel);
       }
       
-      // Marcar que el usuario ha hablado si el nivel es significativo
-      if (normalizedLevel > 10 && !hasSpoken) {
+      // Marcar que el usuario ha hablado (umbral moderado para RMS)
+      if (!hasSpoken && normalizedLevel > 6) {
         console.log('Usuario ha comenzado a hablar');
         setHasSpoken(true);
       }
       
       // Detección de silencio para auto-stop
       if (autoStop) {
-        if (normalizedLevel < 4) { // Umbral de silencio
-          if (!silenceTimerRef.current && hasSpoken) {
-            console.log(`Silencio detectado (nivel: ${normalizedLevel.toFixed(2)}), max nivel: ${maxAudioLevel.toFixed(2)}`);
+        const dynamicThreshold = Math.max(silenceThreshold, maxAudioLevel * relativeSilenceRatio);
+        // Actualización UI de debug (throttle ~120ms)
+        const now = Date.now();
+        if (now - lastUiUpdateRef.current > 120) {
+          setDebugThreshold(dynamicThreshold);
+          lastUiUpdateRef.current = now;
+        }
+        if (normalizedLevel < dynamicThreshold) { // Silencio relativo o absoluto
+          // Verificación continua por tiempo de silencio desde el último pico
+          const nowTs = Date.now();
+          if (hasSpoken && nowTs - lastAboveThresholdRef.current >= silenceDelay) {
+            console.log('Auto-deteniendo por silencio prolongado (medido por tiempo)');
+            handleStopRecording();
+          } else if (!silenceTimerRef.current && hasSpoken) {
+            // Timer de respaldo
+            console.log(`Silencio detectado (nivel: ${normalizedLevel.toFixed(2)} < thr: ${dynamicThreshold.toFixed(2)}), max nivel: ${maxAudioLevel.toFixed(2)}`);
             setIsListening(false);
             silenceTimerRef.current = setTimeout(() => {
-              // Solo detener si el usuario habló algo
-              if (hasSpoken && maxAudioLevel > 12) {
-                console.log('Auto-deteniendo por silencio prolongado');
+              if (hasSpoken && maxAudioLevel > Math.max(6, silenceThreshold - 1)) {
+                console.log('Auto-deteniendo por silencio prolongado (timer)');
                 handleStopRecording();
               } else {
-                console.log('Esperando a que el usuario hable...');
                 silenceTimerRef.current = null;
               }
             }, silenceDelay);
@@ -93,9 +127,11 @@ const AudioRecorder = forwardRef(({
             clearTimeout(silenceTimerRef.current);
             silenceTimerRef.current = null;
             setIsListening(true);
-          } else if (!isListening && normalizedLevel > 6) {
+          } else if (!isListening && normalizedLevel >= dynamicThreshold) {
             setIsListening(true);
           }
+          // Registrar el último momento por encima del umbral
+          lastAboveThresholdRef.current = Date.now();
         }
       }
       
@@ -126,7 +162,7 @@ const AudioRecorder = forwardRef(({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true,
+          autoGainControl: false,
           sampleRate: 44100
         }
       });
@@ -312,64 +348,50 @@ const AudioRecorder = forwardRef(({
   return (
     <div className="relative">
       {!showRecording ? (
-        <motion.button
-          whileHover={!disabled ? { scale: 1.1 } : {}}
-          whileTap={!disabled ? { scale: 0.95 } : {}}
+        <button
           onClick={handleStartRecording}
           disabled={disabled}
-          className={`p-4 rounded-full shadow-lg transition-all ${
-            disabled 
-              ? 'bg-gray-400 cursor-not-allowed' 
-              : 'bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 cursor-pointer'
+          className={`relative p-4 rounded-full transition-all ${
+            disabled
+              ? 'bg-gray-300 cursor-not-allowed'
+              : 'bg-red-600 hover:bg-red-700 shadow-lg'
           }`}
         >
-          <Mic className="w-6 h-6 text-white" />
-        </motion.button>
+          <span className="absolute inset-0 rounded-full bg-red-500/40 animate-ping" aria-hidden="true"></span>
+          <Mic className="relative w-6 h-6 text-white" />
+        </button>
       ) : (
         <div className="relative">
-          <motion.button
-            animate={{ scale: [1, 1.05, 1] }}
-            transition={{ 
-              repeat: Infinity, 
-              duration: 2,
-              ease: "easeInOut"
-            }}
+          <button
             onClick={handleStopRecording}
-            className="p-4 bg-gradient-to-r from-red-600 to-red-700 rounded-full shadow-lg hover:from-red-700 hover:to-red-800 transition-all relative"
+            className="relative p-4 rounded-full bg-red-600 hover:bg-red-700 shadow-lg transition-all"
           >
-            <Square className="w-6 h-6 text-white" />
-            <motion.span 
-              animate={{ opacity: [1, 0.5, 1] }}
-              transition={{ repeat: Infinity, duration: 1 }}
-              className="absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full"
-            />
-          </motion.button>
+            <span className="absolute inset-0 rounded-full bg-red-500/40 animate-ping" aria-hidden="true"></span>
+            <Square className="relative w-6 h-6 text-white" />
+          </button>
           
           {/* Visualizador de audio mejorado */}
           {autoStop && (
             <div className="absolute -bottom-10 left-1/2 transform -translate-x-1/2">
-              <div className="flex items-center gap-1">
-                {[...Array(5)].map((_, i) => (
-                  <motion.div
+              <div className="flex items-end gap-1 px-2 py-1 bg-white/60 backdrop-blur rounded-md border border-gray-200 min-h-[18px]">
+                {[...Array(12)].map((_, i) => (
+                  <div
                     key={i}
-                    className={`w-2 rounded-full transition-all ${
-                      audioLevel > i * 20 
+                    className={`w-1.5 rounded-sm transition-[height,background-color] duration-100 ${
+                      audioLevel > i * (100/12) 
                         ? isListening 
                           ? 'bg-green-500' 
-                          : 'bg-orange-500'
-                        : 'bg-gray-300'
+                          : 'bg-orange-400'
+                        : 'bg-gray-200'
                     }`}
-                    animate={{
-                      height: audioLevel > i * 20 ? `${Math.min(24, 8 + (audioLevel - i * 20) * 0.8)}px` : '4px'
-                    }}
-                    transition={{ duration: 0.1 }}
+                    style={{ height: audioLevel > i * (100/12) ? `${Math.min(32, 6 + (audioLevel - i * (100/12)) * 0.32)}px` : '4px' }}
                   />
                 ))}
               </div>
-              {/* Debug: Mostrar nivel actual */}
-              <div className="text-xs text-gray-500 text-center mt-1">
-                {audioLevel.toFixed(0)}
-              </div>
+          {/* Debug: nivel actual */}
+          {showDebug && (
+            <div className="text-[10px] text-gray-500 text-center mt-1">{audioLevel.toFixed(0)}</div>
+          )}
             </div>
           )}
         </div>
@@ -378,36 +400,45 @@ const AudioRecorder = forwardRef(({
       {/* Indicadores de estado */}
       <AnimatePresence>
         {showRecording && (
-          <motion.div
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: 5 }}
-            className="absolute -top-12 left-1/2 transform -translate-x-1/2 whitespace-nowrap"
-          >
-            <span className="text-sm font-medium text-red-600">
-              {autoStop 
-                ? isListening 
-                  ? '🎤 Escuchando...' 
-                  : '⏱️ Finalizando...'
-                : '🔴 Grabando...'}
+          <div className="absolute -top-12 left-1/2 -translate-x-1/2">
+            <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium shadow ${
+              autoStop ? (isListening ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700') : 'bg-red-100 text-red-700'
+            }`}>
+              <span className={`w-2 h-2 rounded-full ${isListening ? 'bg-green-500' : 'bg-orange-500'}`} />
+              {autoStop ? (isListening ? 'Escuchando...' : 'Finalizando...') : 'Grabando...'}
             </span>
-          </motion.div>
+          </div>
         )}
       </AnimatePresence>
       
       {/* Indicador de silencio */}
       <AnimatePresence>
         {showRecording && autoStop && !isListening && silenceTimerRef.current && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute -bottom-20 left-1/2 transform -translate-x-1/2 text-xs text-orange-600 font-medium"
-          >
-            Detectando silencio... (1.8s)
-          </motion.div>
+          <div className="absolute -bottom-20 left-1/2 -translate-x-1/2">
+            <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-700 shadow">
+              <span className="w-2 h-2 rounded-full bg-orange-500" />
+              Detectando silencio... {(silenceDelay/1000).toFixed(1)}s
+            </span>
+          </div>
         )}
       </AnimatePresence>
+
+      {/* Panel de depuración oculto por defecto */}
+      {showDebug && (
+        <AnimatePresence>
+          {showRecording && autoStop && (
+            <Motion.div
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 6 }}
+              className="absolute -bottom-28 left-1/2 transform -translate-x-1/2 text-[10px] bg-white/80 backdrop-blur px-2 py-1 rounded border border-gray-200 shadow-sm text-gray-700"
+            >
+              <div>lvl: {audioLevel.toFixed(1)} thr: {debugThreshold.toFixed(1)} max: {maxAudioLevel.toFixed(1)}</div>
+              <div>spoke: {hasSpoken ? 'sí' : 'no'} listen: {isListening ? 'sí' : 'no'}</div>
+            </Motion.div>
+          )}
+        </AnimatePresence>
+      )}
     </div>
   );
 });

@@ -13,6 +13,7 @@ export class RealtimeService extends EventEmitter {
     super();
     this.openai = openai;
     this.sessions = new Map();
+    this.voice = process.env.TTS_VOICE || 'ash';
   }
 
   async createSession(profile) {
@@ -242,7 +243,7 @@ export class RealtimeService extends EventEmitter {
 
       const speech = await this.openai.audio.speech.create({
         model: 'tts-1',
-        voice: 'ash',
+        voice: this.voice,
         input: responseText,
         speed: 0.9
       });

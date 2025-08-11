@@ -1,0 +1,3 @@
+No para sola la grabacion. 
+
+Pensar en usar modelo de voz de Openai: Idea de modelo: pmpt_68968e25d2b48195aec288fd03e2e9a906bdeb5bc01290c7

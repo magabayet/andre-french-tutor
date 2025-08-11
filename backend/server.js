@@ -14,6 +14,7 @@ dotenv.config();
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5002;
+const TTS_VOICE = process.env.TTS_VOICE || 'ash';
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -86,7 +87,7 @@ wss.on('connection', (ws) => {
           try {
             const speech = await openai.audio.speech.create({
               model: 'tts-1',
-              voice: 'ash',
+              voice: TTS_VOICE,
               input: data.text,
               speed: 0.9
             });
@@ -127,4 +128,5 @@ wss.on('connection', (ws) => {
 
 server.listen(PORT, () => {
   console.log(`André 1.0 Backend running on port ${PORT}`);
+  console.log(`TTS voice: ${TTS_VOICE}`);
 });

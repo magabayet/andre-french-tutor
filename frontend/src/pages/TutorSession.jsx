@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion as Motion, AnimatePresence } from 'framer-motion';
 import { Mic, MicOff, Volume2, Send, BookOpen, Home } from 'lucide-react';
 import toast from 'react-hot-toast';
 import AudioRecorder from '../components/AudioRecorder';
@@ -11,12 +11,11 @@ function TutorSession() {
   const [profile, setProfile] = useState(null);
   const [messages, setMessages] = useState([]);
   const [isRecording, setIsRecording] = useState(false);
-  const [isSendingAudio, setIsSendingAudio] = useState(false);
+  // const [isSendingAudio, setIsSendingAudio] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [textInput, setTextInput] = useState('');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
-  const [autoRecord, setAutoRecord] = useState(true); // Activar grabación automática
   const autoRecordTimeoutRef = useRef(null);
   const silenceTimeoutRef = useRef(null);
   const audioRecorderRef = useRef(null);
@@ -66,7 +65,11 @@ function TutorSession() {
       return;
     }
     
-    ws.current = new WebSocket('ws://localhost:5002');
+    // En dev seguimos usando el backend local. En prod usamos mismo host bajo /ws (pasando por Nginx)
+    const wsUrl = import.meta.env.DEV
+      ? 'ws://localhost:5002'
+      : `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws`;
+    ws.current = new WebSocket(wsUrl);
     
     ws.current.onopen = async () => {
       setIsConnected(true);
@@ -105,6 +108,7 @@ function TutorSession() {
         ));
         if (data.audio) {
           setIsProcessing(false);
+          // No iniciar grabación automática tras audio
           playAudio(data.audio);
         }
       } else if (data.type === 'audio_response' || data.type === 'text_response') {
@@ -128,6 +132,7 @@ function TutorSession() {
         
         if (data.audio) {
           setIsProcessing(false);
+          // No iniciar grabación automática tras audio
           playAudio(data.audio);
         }
       }
@@ -166,21 +171,7 @@ function TutorSession() {
     audio.addEventListener('ended', () => {
       setIsPlayingAudio(false);
       currentAudio.current = null;
-      
-      // Iniciar grabación automática después de que termine el audio
-      if (autoRecord && audioRecorderRef.current && !isRecording && !isSendingAudio) {
-        // Limpiar cualquier timeout anterior
-        if (autoRecordTimeoutRef.current) {
-          clearTimeout(autoRecordTimeoutRef.current);
-        }
-        
-        autoRecordTimeoutRef.current = setTimeout(() => {
-          if (!isRecording && !isPlayingAudio && !isSendingAudio) {
-            console.log('Iniciando grabación automática...');
-            audioRecorderRef.current.startRecording();
-          }
-        }, 400); // Esperar solo 400ms antes de empezar a grabar
-      }
+      // No auto-iniciar grabación al terminar el audio
     });
     
     audio.addEventListener('error', () => {
@@ -280,32 +271,32 @@ function TutorSession() {
           <div ref={messagesEndRef} />
           
           {/* Indicador de procesamiento */}
-          {isProcessing && (
-            <motion.div
+            {isProcessing && (
+              <Motion.div
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.8 }}
               className="flex items-center gap-3 mt-4 p-3 bg-blue-50 rounded-lg"
             >
               <div className="flex gap-1">
-                <motion.div
+                <Motion.div
                   animate={{ y: [0, -10, 0] }}
                   transition={{ repeat: Infinity, duration: 0.6, delay: 0 }}
                   className="w-2 h-2 bg-french-blue rounded-full"
                 />
-                <motion.div
+                <Motion.div
                   animate={{ y: [0, -10, 0] }}
                   transition={{ repeat: Infinity, duration: 0.6, delay: 0.1 }}
                   className="w-2 h-2 bg-french-blue rounded-full"
                 />
-                <motion.div
+                <Motion.div
                   animate={{ y: [0, -10, 0] }}
                   transition={{ repeat: Infinity, duration: 0.6, delay: 0.2 }}
                   className="w-2 h-2 bg-french-blue rounded-full"
                 />
               </div>
               <span className="text-sm text-gray-600">André está procesando tu mensaje...</span>
-            </motion.div>
+              </Motion.div>
           )}
         </div>
 
@@ -317,7 +308,9 @@ function TutorSession() {
                 isRecording={isRecording}
                 disabled={isPlayingAudio}
                 autoStop={true} // Activar parada automática por silencio
-                silenceDelay={1800} // Parar después de 1.8 segundos de silencio
+                silenceDelay={1200}
+                silenceThreshold={8}
+                relativeSilenceRatio={0.20}
                 onStart={() => {
                   console.log('Grabación iniciada');
                   setIsRecording(true);
@@ -331,12 +324,7 @@ function TutorSession() {
                   console.log('Grabación detenida, procesando blob de', blob.size, 'bytes');
                   setIsRecording(false);
                   if (blob && blob.size > 1000) {
-                    setIsSendingAudio(true);
                     handleAudioData(blob);
-                    // Evitar nueva grabación automática inmediata
-                    setTimeout(() => {
-                      setIsSendingAudio(false);
-                    }, 2000);
                   }
                 }}
               />
@@ -355,32 +343,20 @@ function TutorSession() {
                 placeholder="Escribe en francés..."
                 className="flex-1 px-4 py-2 border-2 border-gray-200 rounded-lg focus:border-french-blue focus:outline-none"
               />
-              <motion.button
+              <Motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
                 type="submit"
                 className="px-4 py-2 bg-french-blue text-white rounded-lg hover:bg-blue-800 transition-colors"
               >
                 <Send className="w-5 h-5" />
-              </motion.button>
+              </Motion.button>
             </form>
           </div>
           
-          <div className="mt-3 space-y-2">
+          <div className="mt-3">
             <div className="text-center text-sm text-gray-500">
               Habla en francés y André te ayudará con la gramática
-            </div>
-            <div className="flex items-center justify-center gap-2">
-              <input
-                type="checkbox"
-                id="autoRecord"
-                checked={autoRecord}
-                onChange={(e) => setAutoRecord(e.target.checked)}
-                className="rounded"
-              />
-              <label htmlFor="autoRecord" className="text-sm text-gray-600">
-                Grabación automática después de cada respuesta
-              </label>
             </div>
           </div>
         </div>
